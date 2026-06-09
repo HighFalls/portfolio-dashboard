@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="Portfolio Dashboard", layout="wide")
 st.title("🚀 My Crypto & Equity Portfolio Dashboard")
 
-FINNHUB_API_KEY = st.secrets.get("FINNHUB_API_KEY")
+FINNHUB_API_KEY = "d6j7kipr01ql467ii380d6j7kipr01ql467ii38g"
 
 st.sidebar.header("📋 Edit Your Holdings")
 
@@ -55,6 +55,12 @@ if col1.button("📤 Export CSV"):
 if uploaded_file := col2.file_uploader("📥 Import CSV", type=["csv"]):
     st.session_state.holdings = pd.read_csv(uploaded_file)
     st.success("✅ Portfolio imported!")
+
+# Refresh Prices Button
+if st.sidebar.button("🔄 Refresh Prices"):
+    st.cache_data.clear()
+    st.success("✅ Prices refreshed!")
+    st.rerun()
 
 # Price fetching
 cg = CoinGeckoAPI()
