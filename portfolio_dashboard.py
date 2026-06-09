@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="Portfolio Dashboard", layout="wide")
 st.title("🚀 My Crypto & Equity Portfolio Dashboard")
 
-FINNHUB_API_KEY = "d6j7kipr01ql467ii380d6j7kipr01ql467ii38g"
+FINNHUB_API_KEY = st.secrets.get("FINNHUB_API_KEY")
 
 st.sidebar.header("📋 Edit Your Holdings")
 
