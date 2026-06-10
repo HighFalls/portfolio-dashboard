@@ -4,3 +4,4 @@ plotly
 yfinance
 pycoingecko
 requests
+supabase
