@@ -5,12 +5,66 @@ import plotly.graph_objects as go
 import yfinance as yf
 from pycoingecko import CoinGeckoAPI
 from datetime import datetime, timedelta
+import supabase
 
 st.set_page_config(page_title="Portfolio Dashboard", layout="wide")
-st.title("🚀 My Crypto & Equity Portfolio Dashboard")
+
+# Supabase
+SUPABASE_URL = "https://zbbnslbahdkpfwdbnifp.supabase.co"
+SUPABASE_ANON_KEY = "sb_publishable_tH7XB5PpnisfKWYa9RgeiQ_yY0MYXTk"
+supa = supabase.create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+if "user" not in st.session_state:
+    st.session_state.user = None
 
 FINNHUB_API_KEY = st.secrets.get("FINNHUB_API_KEY")
 
+# ================== CENTERED LOGIN ==================
+if st.session_state.user is None:
+    st.title("🚀 Portfolio Dashboard")
+
+    # Center the login form
+    col1, col_center, col3 = st.columns([1, 2, 1])
+    with col_center:
+        st.subheader("Sign in to access your personal portfolio")
+
+        tab1, tab2 = st.tabs(["🔑 Login", "📝 Register"])
+
+        with tab1:
+            email = st.text_input("Email", key="login_email")
+            password = st.text_input("Password", type="password", key="login_pass")
+            if st.button("Login", use_container_width=True):
+                try:
+                    res = supa.auth.sign_in_with_password({"email": email, "password": password})
+                    st.session_state.user = res.user
+                    st.success("✅ Logged in successfully!")
+                    st.rerun()
+                except:
+                    st.error("Invalid email or password")
+
+        with tab2:
+            email = st.text_input("Email", key="reg_email")
+            password = st.text_input("Password (min 6 chars)", type="password", key="reg_pass")
+            if st.button("Create Account", use_container_width=True):
+                try:
+                    res = supa.auth.sign_up({"email": email, "password": password})
+                    st.success("✅ Account created! Check your email.")
+                except Exception as e:
+                    st.error(str(e))
+
+    st.stop()
+
+# ================== MAIN DASHBOARD ==================
+st.title(f"🚀 {st.session_state.user.email.split('@')[0]}'s Portfolio")
+
+st.sidebar.success(f"✅ Logged in as {st.session_state.user.email}")
+
+if st.sidebar.button("Logout"):
+    supa.auth.sign_out()
+    st.session_state.user = None
+    st.rerun()
+
+# ================== DASHBOARD ==================
 st.sidebar.header("📋 Edit Your Holdings")
 
 if 'holdings' not in st.session_state:
@@ -21,7 +75,7 @@ if 'holdings' not in st.session_state:
         "Avg Cost": [45000.0, 2500.0, 150.0, 200.0]
     })
 
-# Editing UI
+# Editing UI (your original code)
 st.sidebar.subheader("Current Holdings")
 st.sidebar.dataframe(st.session_state.holdings, use_container_width=True)
 
@@ -56,13 +110,12 @@ if uploaded_file := col2.file_uploader("📥 Import CSV", type=["csv"]):
     st.session_state.holdings = pd.read_csv(uploaded_file)
     st.success("✅ Portfolio imported!")
 
-# Refresh Prices Button
 if st.sidebar.button("🔄 Refresh Prices"):
     st.cache_data.clear()
     st.success("✅ Prices refreshed!")
     st.rerun()
 
-# Price fetching
+# Price fetching & Charts (your original code)
 cg = CoinGeckoAPI()
 
 @st.cache_data(ttl=300)
@@ -123,7 +176,7 @@ with c2:
     if not df_portfolio.empty:
         st.plotly_chart(px.bar(df_portfolio, x="Asset", y="Gain/Loss %", color="Type", title="Performance"), use_container_width=True)
 
-# Historical Charts - Cleaner Layout
+# Historical Charts
 st.subheader("📈 Historical Portfolio Value (Last 30 Days)")
 chart_type = st.radio("Chart Type", ["Line", "Candlestick", "Combined"], horizontal=True)
 
@@ -165,8 +218,7 @@ if st.button("Load Real Historical Trend"):
                 )])
                 fig.update_layout(title="Portfolio Value Candlestick", xaxis_title="Date", yaxis_title="Value ($)")
                 st.plotly_chart(fig, use_container_width=True)
-            else:  # Combined
-                # Candlestick
+            else:
                 hist_df['Open'] = hist_df['Value'].shift(1).fillna(hist_df['Value'])
                 hist_df['Close'] = hist_df['Value']
                 hist_df['High'] = hist_df['Value'] * 1.008
@@ -179,9 +231,6 @@ if st.button("Load Real Historical Trend"):
                 fig_c.update_layout(title="Candlestick View", xaxis_title="Date", yaxis_title="Value ($)")
                 st.plotly_chart(fig_c, use_container_width=True)
                 
-                # Line below
                 st.line_chart(hist_df.set_index("Date")["Value"], use_container_width=True)
-        else:
-            st.warning("Could not fetch historical data.")
 
-st.caption("💡 Full editing + CSV tools in sidebar")
+st.caption("💡 Your portfolio is private to your account")
