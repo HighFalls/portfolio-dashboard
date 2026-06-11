@@ -6,41 +6,63 @@ import yfinance as yf
 from pycoingecko import CoinGeckoAPI
 from datetime import datetime, timedelta
 import supabase
+import json
+import os
 
 st.set_page_config(page_title="Portfolio Dashboard", layout="wide")
 
-# Supabase
+# Supabase — cached so the client is only created once across reruns
 SUPABASE_URL = "https://zbbnslbahdkpfwdbnifp.supabase.co"
 SUPABASE_ANON_KEY = "sb_publishable_tH7XB5PpnisfKWYa9RgeiQ_yY0MYXTk"
-supa = supabase.create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+@st.cache_resource
+def get_supabase_client():
+    return supabase.create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+supa = get_supabase_client()
+
+# Local backup
+DATA_FILE = "portfolio_data.json"
 
 if "user" not in st.session_state:
     st.session_state.user = None
+if "login_error" not in st.session_state:
+    st.session_state.login_error = None
 
-FINNHUB_API_KEY = st.secrets.get("FINNHUB_API_KEY")
-
-# ================== CENTERED LOGIN ==================
+# ================== LOGIN SCREEN ==================
 if st.session_state.user is None:
     st.title("🚀 Portfolio Dashboard")
-
-    # Center the login form
     col1, col_center, col3 = st.columns([1, 2, 1])
     with col_center:
         st.subheader("Sign in to access your personal portfolio")
-
         tab1, tab2 = st.tabs(["🔑 Login", "📝 Register"])
 
         with tab1:
             email = st.text_input("Email", key="login_email")
             password = st.text_input("Password", type="password", key="login_pass")
-            if st.button("Login", use_container_width=True):
-                try:
-                    res = supa.auth.sign_in_with_password({"email": email, "password": password})
-                    st.session_state.user = res.user
-                    st.success("✅ Logged in successfully!")
-                    st.rerun()
-                except:
-                    st.error("Invalid email or password")
+
+            if st.button("Login", use_container_width=True, key="login_btn"):
+                if not email or not password:
+                    st.session_state.login_error = "Please enter email and password"
+                else:
+                    st.session_state.login_error = None
+                    try:
+                        res = supa.auth.sign_in_with_password({"email": email, "password": password})
+                        if res.user:
+                            st.session_state.user = res.user
+                            st.session_state.login_error = None
+                            st.rerun()
+                        else:
+                            st.session_state.login_error = "Login failed — no user returned. Check credentials."
+                    except Exception as e:
+                        err = str(e).lower()
+                        if "invalid" in err or "credentials" in err or "password" in err:
+                            st.session_state.login_error = "Invalid email or password"
+                        else:
+                            st.session_state.login_error = f"Login error: {e}"
+
+            if st.session_state.login_error:
+                st.error(st.session_state.login_error)
 
         with tab2:
             email = st.text_input("Email", key="reg_email")
@@ -51,55 +73,127 @@ if st.session_state.user is None:
                     st.success("✅ Account created! Check your email.")
                 except Exception as e:
                     st.error(str(e))
-
     st.stop()
 
 # ================== MAIN DASHBOARD ==================
-st.title(f"🚀 {st.session_state.user.email.split('@')[0]}'s Portfolio")
+user = st.session_state.user
+st.title(f"🚀 {user.email.split('@')[0]}'s Portfolio")
 
-st.sidebar.success(f"✅ Logged in as {st.session_state.user.email}")
+st.sidebar.success(f"✅ Logged in as {user.email}")
 
 if st.sidebar.button("Logout"):
     supa.auth.sign_out()
-    st.session_state.user = None
+    st.session_state.clear()
     st.rerun()
 
-# ================== DASHBOARD ==================
-st.sidebar.header("📋 Edit Your Holdings")
+user_id = user.id
 
+def save_to_supabase(holdings_df):
+    try:
+        supa.table("portfolios").upsert({
+            "user_id": user_id,
+            "holdings": holdings_df.to_dict('records')
+        }).execute()
+        return True
+    except:
+        return False
+
+def load_from_supabase():
+    try:
+        response = supa.table("portfolios").select("holdings").eq("user_id", user_id).execute()
+        if response.data and len(response.data) > 0 and response.data[0].get("holdings"):
+            return pd.DataFrame(response.data[0]["holdings"])
+    except:
+        pass
+    return None
+
+# Load holdings (Supabase first, then local file, then default)
 if 'holdings' not in st.session_state:
-    st.session_state.holdings = pd.DataFrame({
-        "Asset": ["BTC", "ETH", "AAPL", "TSLA"],
-        "Type": ["Crypto", "Crypto", "Equity", "Equity"],
-        "Quantity": [0.5, 10.0, 50.0, 20.0],
-        "Avg Cost": [45000.0, 2500.0, 150.0, 200.0]
-    })
+    holdings = load_from_supabase()
+    if holdings is not None and len(holdings) > 0:
+        st.session_state.holdings = holdings
+        st.success("✅ Portfolio loaded from cloud")
+    elif os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, 'r') as f:
+                data = json.load(f)
+                st.session_state.holdings = pd.DataFrame(data)
+        except:
+            pass
+    if 'holdings' not in st.session_state or len(st.session_state.holdings) == 0:
+        st.session_state.holdings = pd.DataFrame({
+            "Asset": ["BTC", "ETH", "AAPL", "TSLA"],
+            "Type": ["Crypto", "Crypto", "Equity", "Equity"],
+            "Quantity": [0.5, 10.0, 50.0, 20.0],
+            "Avg Cost": [45000.0, 2500.0, 150.0, 200.0]
+        })
+        save_to_supabase(st.session_state.holdings)
 
-# Editing UI (your original code)
-st.sidebar.subheader("Current Holdings")
-st.sidebar.dataframe(st.session_state.holdings, use_container_width=True)
+def save_holdings():
+    save_to_supabase(st.session_state.holdings)
+    try:
+        with open(DATA_FILE, 'w') as f:
+            json.dump(st.session_state.holdings.to_dict('records'), f)
+    except:
+        pass
 
-st.sidebar.subheader("Add New Holding")
-new_asset = st.sidebar.text_input("Asset (e.g. SOL, MSFT)")
-new_type = st.sidebar.selectbox("Type", ["Crypto", "Equity"])
-new_qty = st.sidebar.number_input("Quantity", min_value=0.0, value=1.0, step=0.0001)
-new_cost = st.sidebar.number_input("Avg Cost $", min_value=0.0, value=100.0, step=0.01)
+# ================== EDITING UI ==================
+# Add New Holding
+st.sidebar.subheader("🚀 Add Holding")
+new_asset = st.sidebar.text_input("Asset (e.g. SOL, MSFT)", key="new_asset")
+new_type = st.sidebar.selectbox("Type", ["Crypto", "Equity"], key="new_type")
+new_qty = st.sidebar.number_input("Quantity", min_value=0.0, value=1.0, step=0.0001, key="new_qty_unique", format="%.6f")
+new_cost = st.sidebar.number_input("Avg Cost $", min_value=0.0, value=100.0, step=0.01, key="new_cost_unique", format="%.4f")
 
-if st.sidebar.button("➕ Add Holding"):
+if st.sidebar.button("➕ Add Holding", key="add_btn"):
     if new_asset:
         new_row = pd.DataFrame([{"Asset": new_asset.upper(), "Type": new_type, "Quantity": new_qty, "Avg Cost": new_cost}])
         st.session_state.holdings = pd.concat([st.session_state.holdings, new_row], ignore_index=True)
+        save_holdings()
+        st.success("✅ Added!")
 
+# ================== IMPROVED EDIT HOLDING ==================
+st.sidebar.subheader("✏️ Edit Holding")
+
+if not st.session_state.holdings.empty:
+    asset_options = [""] + st.session_state.holdings["Asset"].tolist()
+    selected_asset = st.sidebar.selectbox("Select Asset to Edit", asset_options, key="edit_asset_select")
+
+    if selected_asset:
+        edit_index = st.session_state.holdings[st.session_state.holdings["Asset"] == selected_asset].index[0]
+        row = st.session_state.holdings.iloc[edit_index]
+        
+        edit_asset = st.sidebar.text_input("Asset", value=row["Asset"], key=f"edit_asset_{edit_index}")
+        edit_type = st.sidebar.selectbox("Type", ["Crypto", "Equity"], 
+                                        index=0 if row["Type"] == "Crypto" else 1, 
+                                        key=f"edit_type_{edit_index}")
+        edit_qty = st.sidebar.number_input("Quantity", value=float(row["Quantity"]), step=0.000001, 
+                                          key=f"edit_qty_{edit_index}", format="%.8f")
+        edit_cost = st.sidebar.number_input("Avg Cost $", value=float(row["Avg Cost"]), step=0.01, 
+                                           key=f"edit_cost_{edit_index}", format="%.4f")
+
+        if st.sidebar.button("💾 Save Edit", key=f"save_edit_{edit_index}"):
+            st.session_state.holdings.at[edit_index, "Asset"] = edit_asset.upper()
+            st.session_state.holdings.at[edit_index, "Type"] = edit_type
+            st.session_state.holdings.at[edit_index, "Quantity"] = edit_qty
+            st.session_state.holdings.at[edit_index, "Avg Cost"] = edit_cost
+            save_holdings()
+            st.success("✅ Holding updated!")
+            st.rerun()
+
+# Delete & Clear
 delete_index = st.sidebar.number_input("Delete row number (0-based)", min_value=0, value=0, step=1)
 if st.sidebar.button("🗑️ Delete Row"):
     if 0 <= delete_index < len(st.session_state.holdings):
         st.session_state.holdings = st.session_state.holdings.drop(delete_index).reset_index(drop=True)
+        save_holdings()
 
 if st.sidebar.button("🗑️ Clear All Holdings"):
     st.session_state.holdings = pd.DataFrame(columns=["Asset", "Type", "Quantity", "Avg Cost"])
+    save_holdings()
     st.success("✅ All holdings cleared!")
 
-# CSV Tools
+# CSV Tools + Refresh
 st.sidebar.subheader("💾 CSV Tools")
 col1, col2 = st.sidebar.columns(2)
 if col1.button("📤 Export CSV"):
@@ -108,6 +202,7 @@ if col1.button("📤 Export CSV"):
 
 if uploaded_file := col2.file_uploader("📥 Import CSV", type=["csv"]):
     st.session_state.holdings = pd.read_csv(uploaded_file)
+    save_holdings()
     st.success("✅ Portfolio imported!")
 
 if st.sidebar.button("🔄 Refresh Prices"):
@@ -115,7 +210,7 @@ if st.sidebar.button("🔄 Refresh Prices"):
     st.success("✅ Prices refreshed!")
     st.rerun()
 
-# Price fetching & Charts (your original code)
+# Price fetching
 cg = CoinGeckoAPI()
 
 @st.cache_data(ttl=300)
@@ -134,7 +229,7 @@ def get_price(symbol, asset_type):
         st.warning(f"Could not fetch {symbol}")
         return None
 
-# Current Portfolio
+# Current Portfolio Calculation
 portfolio = []
 total_value = 0.0
 for _, row in st.session_state.holdings.iterrows():
@@ -230,7 +325,6 @@ if st.button("Load Real Historical Trend"):
                 )])
                 fig_c.update_layout(title="Candlestick View", xaxis_title="Date", yaxis_title="Value ($)")
                 st.plotly_chart(fig_c, use_container_width=True)
-                
                 st.line_chart(hist_df.set_index("Date")["Value"], use_container_width=True)
 
-st.caption("💡 Your portfolio is private to your account")
+st.caption("💡 Changes are automatically saved to your account")
