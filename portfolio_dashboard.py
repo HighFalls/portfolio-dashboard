@@ -220,15 +220,46 @@ if st.sidebar.button("🔄 Refresh Prices"):
 # Price fetching
 cg = CoinGeckoAPI()
 
+# Price fetching
+cg = CoinGeckoAPI()
+
 @st.cache_data(ttl=300)
 def get_price(symbol, asset_type):
     try:
         if asset_type == "Crypto":
-            coin_map = {"BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", "XRP": "ripple"}
+            # Expanded coin map for your portfolio
+            coin_map = {
+                "BTC": "bitcoin",
+                "ETH": "ethereum",
+                "SOL": "solana",
+                "XRP": "ripple",
+                "RENDER": "render-token",
+                "GRASS": "grass",
+                "FET": "fetch-ai",
+                "ASI": "artificial-superintelligence-alliance",
+                "TRAC": "origintrail",
+                "AKT": "akash-network",
+                "TIA": "celestia",
+                "HYPE": "hyperliquid",           # adjust if needed
+                "TAO": "bittensor",
+                "ADA": "cardano",
+                "DOGE": "dogecoin",
+                "AVAX": "avalanche-2",
+                "LINK": "chainlink",
+                "DOT": "polkadot",
+                "TON": "the-open-network",
+                "SHIB": "shiba-inu",
+                "HBAR": "hedera-hashgraph",
+                "TRX": "tron",
+                "LTC": "litecoin",
+                "USDT": "tether",
+                "USDC": "usd-coin"
+            }
             coin_id = coin_map.get(symbol.upper(), symbol.lower())
             data = cg.get_price(ids=coin_id, vs_currencies="usd")
             return data.get(coin_id, {}).get("usd")
         else:
+            # Equities via yfinance
             ticker = yf.Ticker(symbol)
             hist = ticker.history(period="1d")
             return hist['Close'].iloc[-1] if not hist.empty else None
