@@ -289,6 +289,30 @@ for _, row in st.session_state.holdings.iterrows():
 
 df_portfolio = pd.DataFrame(portfolio)
 
+# ================== PORTFOLIO SUMMARY ==================
+st.subheader("📊 Portfolio Summary")
+
+total_cost = sum(
+    float(row["Quantity"]) * float(row["Avg Cost"]) 
+    for _, row in st.session_state.holdings.iterrows()
+)
+
+total_pnl = df_portfolio["Gain/Loss $"].sum() if not df_portfolio.empty else 0.0
+overall_return = ((total_value / total_cost) - 1) * 100 if total_cost > 0 else 0
+crypto_value = df_portfolio[df_portfolio["Type"] == "Crypto"]["Market Value"].sum() if not df_portfolio.empty else 0.0
+crypto_pct = (crypto_value / total_value * 100) if total_value > 0 else 0
+
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("💰 Total Value", f"${total_value:,.2f}")
+col2.metric("📈 Total P&L", f"${total_pnl:,.2f}", f"{overall_return:.1f}%")
+col3.metric("Crypto %", f"{crypto_pct:.1f}%")
+
+if not df_portfolio.empty:
+    top_asset = df_portfolio.loc[df_portfolio["Market Value"].idxmax(), "Asset"]
+    col4.metric("Top Holding", top_asset)
+else:
+    col4.metric("Top Holding", "-")
+
 col1, col2, col3 = st.columns(3)
 col1.metric("💰 Total Value", f"${total_value:,.2f}")
 col2.metric("📈 Total P&L", f"${df_portfolio['Gain/Loss $'].sum():,.2f}" if not df_portfolio.empty else "$0.00")
