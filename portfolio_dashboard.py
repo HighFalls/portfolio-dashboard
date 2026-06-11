@@ -181,13 +181,20 @@ if not st.session_state.holdings.empty:
             st.success("✅ Holding updated!")
             st.rerun()
 
-# Delete & Clear
-delete_index = st.sidebar.number_input("Delete row number (0-based)", min_value=0, value=0, step=1)
-if st.sidebar.button("🗑️ Delete Row"):
-    if 0 <= delete_index < len(st.session_state.holdings):
+# ================== DELETE HOLDING ==================
+st.sidebar.subheader("🗑️ Delete Holding")
+if not st.session_state.holdings.empty:
+    delete_options = [""] + st.session_state.holdings["Asset"].tolist()
+    selected_to_delete = st.sidebar.selectbox("Select Asset to Delete", delete_options, key="delete_select")
+
+    if selected_to_delete and st.sidebar.button("🗑️ Confirm Delete", key="confirm_delete"):
+        delete_index = st.session_state.holdings[st.session_state.holdings["Asset"] == selected_to_delete].index[0]
         st.session_state.holdings = st.session_state.holdings.drop(delete_index).reset_index(drop=True)
         save_holdings()
+        st.success(f"✅ {selected_to_delete} deleted!")
+        st.rerun()
 
+# Clear All Holdings
 if st.sidebar.button("🗑️ Clear All Holdings"):
     st.session_state.holdings = pd.DataFrame(columns=["Asset", "Type", "Quantity", "Avg Cost"])
     save_holdings()
